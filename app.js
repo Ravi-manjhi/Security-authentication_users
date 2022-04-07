@@ -1,10 +1,11 @@
 //jshint esversion:6
-require('dotenv').config();
+require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
-const md5 = require('md5');
+const bcrypt = require("bcrypt");
 
+const salt = 10;
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.static("public"));
@@ -35,36 +36,39 @@ app.get("/submit", function (req, res) {
 
 app.post("/login", function (req, res) {
   let userId = req.body.username;
-  let password = md5(req.body.password);
-  User.findOne({ username: userId }, function (err, result) {
-      if (result.password === password){
+  let password = req.body.password;
+  User.findOne({ username: userId }, function (err, foundUser) {
+    if (foundUser) {
+      bcrypt.compare(password, foundUser.password, function (err, result) {
+        if (result === true) {
           res.render("secrets");
-      }else{
-          res.redirect('/login')
-      }
+        }
+      });
+    }
   });
 });
 
 app.post("/register", function (req, res) {
-  let userId = req.body.username;
-  let password = md5(req.body.password);
-  User.findOne({ username: userId }, function (err, result) {
-    if (!err) {
-      if (result) {
-        res.redirect("/register");
-      } else {
-        let newUser = new User({
-          username: userId,
-          password: password,
-        });
-        newUser.save(function (err) {
-          if (!err) {
-            console.log("Save into database!");
-            res.render("secrets");
-          }
-        });
+  bcrypt.hash(req.body.password, salt, function (err, hash) {
+    let userId = req.body.username;
+    User.findOne({ username: userId }, function (err, result) {
+      if (!err) {
+        if (result) {
+          res.redirect("/register");
+        } else {
+          let newUser = new User({
+            username: userId,
+            password: hash,
+          });
+          newUser.save(function (err) {
+            if (!err) {
+              console.log("Save into database!");
+              res.render("secrets");
+            }
+          });
+        }
       }
-    }
+    });
   });
 });
 
