@@ -3,13 +3,25 @@ require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
 
-const salt = 10;
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.static("public"));
 app.set("view engine", "ejs");
+
+app.use(
+  session({
+    secret: "ourlittlesecret",
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
 mongoose.connect("mongodb://localhost:27017/userDB");
 
 const userSchema = new mongoose.Schema({
@@ -17,7 +29,11 @@ const userSchema = new mongoose.Schema({
   password: String,
 });
 
+userSchema.plugin(passportLocalMongoose);
 const User = mongoose.model("user", userSchema);
+passport.use(User.createStrategy());
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.get("/", function (req, res) {
   res.render("home");
@@ -34,41 +50,48 @@ app.get("/submit", function (req, res) {
   res.render("submit");
 });
 
-app.post("/login", function (req, res) {
-  let userId = req.body.username;
-  let password = req.body.password;
-  User.findOne({ username: userId }, function (err, foundUser) {
-    if (foundUser) {
-      bcrypt.compare(password, foundUser.password, function (err, result) {
-        if (result === true) {
-          res.render("secrets");
-        }
-      });
-    }
-  });
+app.get("/secret", function (req, res) {
+  if (req.isAuthenticated()) {
+    res.render("secrets");
+  } else {
+    res.redirect("/login");
+  }
 });
 
+app.get("/logout", function(req, res){
+  req.logout();
+  res.redirect('/')
+})
+
 app.post("/register", function (req, res) {
-  bcrypt.hash(req.body.password, salt, function (err, hash) {
-    let userId = req.body.username;
-    User.findOne({ username: userId }, function (err, result) {
+  User.register(
+    { username: req.body.username },
+    req.body.password,
+    function (err, result) {
       if (!err) {
-        if (result) {
-          res.redirect("/register");
-        } else {
-          let newUser = new User({
-            username: userId,
-            password: hash,
-          });
-          newUser.save(function (err) {
-            if (!err) {
-              console.log("Save into database!");
-              res.render("secrets");
-            }
-          });
-        }
+        passport.authenticate("local")(req, res, function () {
+          res.redirect("/secret");
+        });
+      } else {
+        console.log(err);
       }
-    });
+    }
+  );
+});
+
+app.post("/login", function (req, res) {
+  const user = new User({
+    username: req.body.username,
+    password: req.body.passport,
+  });
+  req.login(user, function (err) {
+    if (!err) {
+      passport.authenticate("local")(req, res, function () {
+        res.redirect("/secret");
+      });
+    } else {
+      console.log(err);
+    }
   });
 });
 
